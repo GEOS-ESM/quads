@@ -13,9 +13,14 @@ import numpy as np
 import pandas as pd
 import dask
 from dask import delayed
+import argparse
 
 from quads.get_collections_and_files import list_files_and_excluded_vars
-from quads.sanity_check_v2 import edge_check
+from quads.sanity_check_v2 import fence
+
+
+from pytdigest import TDigest
+from quads.make_tdigest import get_quantiles_from_tdigest  # returns (quantiles, quantile_list)
 
 # Coordinate name preferences (in order)
 LEV_NAMES = ["lev", "level", "pressure"]
@@ -30,14 +35,15 @@ def load_strata(strata_yaml_file: str | Path) -> Dict[str, Dict]:
         return yaml.safe_load(f)["STRATA"]
 
 
-def load_quantiles_from_db(db_path: Path, model: str, year: int, month: int, id_string: str):
+def load_tdigest_from_db(db_path: Path, model: str, year: int, month: int, id_string: str):
     """
-    Fetch (quantiles, quantile_list) for a given key/month from SQLite.
-    Print msg if not found.
+    Fetch (compression, centroids, quantiles, quantile_list) for a given key/month from SQLite.
+    Returns None if not found.
     """
+    table_name = model.lower()
     with sqlite3.connect(str(db_path)) as conn:
         row = conn.execute(
-            f"SELECT quantiles, quantile_list FROM {model} "
+            f"SELECT compression, centroids, quantiles, quantile_list FROM {table_name} "
             "WHERE model=? AND year=? AND month=? AND id_string=?",
             (model, year, month, id_string),
         ).fetchone()
@@ -51,7 +57,36 @@ def load_quantiles_from_db(db_path: Path, model: str, year: int, month: int, id_
         )
         return None
 
-    return pickle.loads(row[0]), pickle.loads(row[1])
+    compression, centroids, quantiles, qlist =  row[0], pickle.loads(row[1]), pickle.loads(row[2]), pickle.loads(row[3]) 
+    return {
+            "year": year,
+            "month": month,
+            "compression": compression,
+            "centroids": centroids,
+            "quantiles": quantiles,
+            "quantile_list": qlist,
+            }
+
+
+def combine_tdigest_refs(refs: list[dict]):
+    """
+    combine multiple DB-loaded tdigest references.
+    """
+    if not refs:
+        return None
+
+    compression = refs[0]["compression"]
+
+    td_merged = None
+
+    for ref in refs:
+        centroids = ref["centroids"]
+        #compression = ref["compression"]
+        td = TDigest.of_centroids(np.asarray(centroids), compression=compression)
+
+        td_merged = td if td_merged is None else TDigest.combine(td_merged, td)
+    
+    return td_merged
 
 @delayed
 def analyse(da_sel,
@@ -62,20 +97,63 @@ def analyse(da_sel,
             database_path,
             ):
     """
-    Compute results for the given data slice
+    Compute results for the given data slice and collect violated data points
+    Reference is built by combining TDigests from 3 relevant months of previous 
+    year. reference year and month are exactly one year earlier than where da_sel is from
     """
-    arr_np = np.asarray(da_sel) # becomes numpy array
-    data = arr_np.reshape(-1)
 
-    ref = load_quantiles_from_db(database_path, model, reference_year, reference_month, key)
-
-    if ref is None:
+    refs = []
+    
+    ref_date = datetime(reference_year, reference_month, 1) # day is place holder
+    for delta in (-1, 0, 1):
+        d = ref_date + relativedelta(months=delta)
+        y, m = d.year, d.month
+        
+        ref = load_tdigest_from_db(db_path=database_path, model=model, year=y, month=m, id_string=key)
+        if ref is not None:
+            refs.append(ref)
+    
+    if not refs:
+        print("No reference tdigest data  available")
         return None
 
-    quantiles, qlist = ref
-    n_low, n_high, fence_low, fence_high = edge_check(data, (quantiles, qlist))
-    n_tot = int(n_low + n_high)
-    return key, n_low, n_high, n_tot, fence_low, fence_high,  quantiles, qlist
+    td_ref = combine_tdigest_refs(refs)
+
+    if td_ref is None:
+        return None
+
+    ref_quantiles = get_quantiles_from_tdigest(td_ref)
+
+    quantiles, qlist = ref_quantiles
+    fence_low, fence_high = fence(ref_quantiles)
+    
+    mask_low = da_sel < fence_low
+    mask_high = da_sel > fence_high
+    mask_bad = mask_low | mask_high
+
+    n_low, n_high = dask.compute(mask_low.sum(), mask_high.sum())
+    n_low = int(n_low)
+    n_high = int(n_high)
+    n_tot = n_low + n_high
+
+
+    summary_row = (key, n_low, n_high, n_tot, fence_low, fence_high,  quantiles, qlist)
+
+    violations_df = None
+
+    if n_tot > 0:
+        da_bad = da_sel.where(mask_bad, drop=True)
+
+        violations_df = (da_bad.to_dataframe(name="value")
+                        .reset_index()
+                        .dropna(subset=["value"])
+                        )
+
+        violations_df["id_string"] = key
+        violations_df["fence_low"] = fence_low
+        violations_df["fence_high"] = fence_high
+
+    return summary_row, violations_df
 # -----------------------------
 # main driver
 # -----------------------------
@@ -86,13 +164,12 @@ def compute_and_save_results(
     strata_file: str,
     historical_reference_date: datetime,
     db_path: str | Path,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    For each (collection,var,level,stratum) slice:
-      - flatten data
+    For each (collection,var,level,stratum) slice, computes:
       - fetch reference quantiles from SQLite (for this model/year/month/id)
-      - run sanity check (edge_check)
-      - return row: id_string, no_of_violations, quantiles, quantile_list
+      - return: a datafame including  id_string, no_of_violations, quantiles, quantile_list for all slices
+                a dataframe that includes all outliers (a subset of entire day worth of data)
     """
     # Resolve files and exclusions from YAML
     _, collection_dict, excluded = list_files_and_excluded_vars(
@@ -104,6 +181,8 @@ def compute_and_save_results(
 
     df = pd.DataFrame(columns=["id_string", "no_of_violations_left", "no_of_violations_right", "no_of_total_violations", "fence_low","fence_high", "quantile_values", "q_list"])
 
+    all_violations_tables = []
+
     for coll_name, files in collection_dict.items():
         #if coll_name != "inst3_2d_asm_Nx":
         #   continue
@@ -113,7 +192,7 @@ def compute_and_save_results(
             tag = f"{day:02d}.nc4" # note the assumption here
             files = [fi for fi in files if fi.endswith(tag)]
             print(day, files)
-        print(files)
+            #print(files)
         ds = xr.open_mfdataset(
             files,
             combine="by_coords",
@@ -171,18 +250,35 @@ def compute_and_save_results(
 
                     # 3.6) Queue the job.
                     delayed_jobs.append(analyse(da_sel, id_key, model, historical_reference_date.year, historical_reference_date.month, Path(db_path)))
+                
 
         print(len(delayed_jobs))
         finished = dask.compute(*delayed_jobs, scheduler="threads")
         finished = [x for x in finished if x is not None]
         if finished:
-            new_df = pd.DataFrame(finished, columns=df.columns)
+            summary_rows = []
+            violation_tables = []
+
+            for summary_row, violations_df in finished:
+                if summary_row[3] > 0:
+                    summary_rows.append(summary_row)
+
+                if violations_df is not None and not violations_df.empty:
+                    violation_tables.append(violations_df)
+
+            new_df = pd.DataFrame(summary_rows, columns=df.columns)
             if df.empty:
                 df = new_df
             else:
                 df = pd.concat([df, new_df], ignore_index=True)
-    
-    return df
+            all_violations_tables.extend(violation_tables)
+
+    if all_violations_tables:
+        violations_all = pd.concat(all_violations_tables, ignore_index=True)
+    else:
+        violations_all = pd.DataFrame()
+
+    return df, violations_all
 
 
 # -----------------------------
@@ -190,20 +286,18 @@ def compute_and_save_results(
 # -----------------------------
 
 if __name__ == "__main__":
-    import os
-
-    model = os.environ.get("MODEL", "GEOSIT")
-    date_str = os.environ.get("DATE", "2024-02-1")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--date", required=True)
+    args = parser.parse_args()
+    model = args.model
+    date_str = args.date
 
     date = datetime.strptime(date_str, "%Y-%m-%d")
 
     model_lower = model.lower()
 
-    historical_reference_dates = [
-        date - relativedelta(years=1, months=1),
-        date - relativedelta(years=1),
-        date - relativedelta(years=1, months=-1),
-    ]
+    historical_reference_date = date - relativedelta(years=1, months=0)
 
     data_yaml_file = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/dataserver.yaml"
     strata_file = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/strata.yaml"
@@ -213,35 +307,46 @@ if __name__ == "__main__":
 
     print(f"Running QUADS user job for MODEL={model}, DATE={date_str}")
 
-    for historical_reference_date in historical_reference_dates:
-        df = compute_and_save_results(
-            model=model,
-            date=date,
-            data_yaml_file=data_yaml_file,
-            strata_file=strata_file,
-            historical_reference_date=historical_reference_date,
-            db_path=db_path,
-        )
-        df.sort_values(by="no_of_total_violations", ascending=False)
+    df, violations_df = compute_and_save_results(
+        model=model,
+        date=date,
+        data_yaml_file=data_yaml_file,
+        strata_file=strata_file,
+        historical_reference_date=historical_reference_date,
+        db_path=db_path,
+    )
+    df = df.sort_values(by="no_of_total_violations", ascending=False)
 
-        # One daily file under out_dir/model/YYYY/MM/YYYY-MM-DD.pkl, one monthly for MERRA2 and GEOSIT
-        base = results_base_path
-        year_dir = base / model / f"{date.year:04d}"
-        month_dir = year_dir / f"{date.month:02d}"
-        month_dir.mkdir(parents=True, exist_ok=True)
-        day_dir = month_dir / f"{date.day:02d}"
-        day_dir.mkdir(parents=True, exist_ok=True)
+     # One daily file under out_dir/model/YYYY/MM/YYYY-MM-DD.pkl, one monthly for GEOSIT
+    base = results_base_path
+    year_dir = base / model / f"{date.year:04d}"
+    month_dir = year_dir / f"{date.month:02d}"
+    month_dir.mkdir(parents=True, exist_ok=True)
+    day_dir = month_dir / f"{date.day:02d}"
+    day_dir.mkdir(parents=True, exist_ok=True)
 
-        ref_str = historical_reference_date.strftime("%Y-%m")
-        df_var_name = f"quads_results_{model_lower}_{date.strftime('%Y_%m_%d')}_reference_date_{ref_str}"
-        out_file = f"{df_var_name}.pkl"
-        out_path = day_dir / out_file
-        df.to_pickle(out_path)
+    #ref_str = historical_reference_date.strftime("%Y-%m")
+    df_var_name = f"quads_results_{model_lower}_{date.strftime('%Y_%m_%d')}"
+    out_file = f"{df_var_name}_summary.pkl"
+    out_path = day_dir / out_file
+    df.to_pickle(out_path)
 
-        print(f"Created DataFrame '{df_var_name}' with {len(df)} rows.")
-        print(f"✔ Saved DataFrame to {out_path}")
-        print(df.head())
+    print(f"Created DataFrame '{df_var_name}' with {len(df)} rows.")
+    print(f"✔ Saved DataFrame to {out_path}")
 
-# Note: This code can be optimized for run-time by only opening the raw data
-# files once instead of three times -- a typical example of DRY
+    violations_out_path = day_dir / f"{df_var_name}_violations_raw_data.parquet"
+
+    if not violations_df.empty:
+        violations_df = violations_df.sort_values("id_string")
+        violations_df.to_parquet(
+                violations_out_path,
+                engine="pyarrow",
+                index=False,
+                compression="zstd",
+                row_group_size=100_000,
+                )
+
+        print(f"Saved violations to {violations_out_path}")
+    else:
+        print("No violations found; no parquet written")
 
