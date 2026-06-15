@@ -27,6 +27,9 @@ MONTH=${MONTH:-5}
 MODEL=${MODEL:-MERRA2}
 
 DAY=1  # dummy day - can use any value for the day, but an input is needed for formatting consistency
+# the central function in "compute_and_save_daily_digests.py" needs a full date string, including day, as# its argument. That date string is then passed to "get_collections_and_files.py"
+# For Merra2, (see the dataserver.yaml), the file format get_collections_and_files.py reads is only
+# yyyy-mm. So, the -day value will be effectively ignored, meaning all the monthly files are read
 
 MONTH_PADDED=$(printf "%02d" "${MONTH}")
 DAY_PADDED=$(printf "%02d" "${DAY}")

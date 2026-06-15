@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 import pickle
 import os
+import argparse
 
 def load_monthly_pickle(base_out_dir: str, model: str, year: int, month: int) -> list:
     base = Path(base_out_dir)
@@ -100,12 +101,19 @@ def insert_month_into_db(
 def main():
     base_out_dir = "/home/sadhika8/JupyterLinks/nobackup/quads_data"
 
-    # Read from environment (set by your .sh), fall back to defaults
-    model = os.environ.get("MODEL")
-    year = int(os.environ.get("YEAR"))
-    month = int(os.environ.get("MONTH"))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--year", required=True, type=int)
+    parser.add_argument("--month", required=True, type=int)
+    args = parser.parse_args()
+    
+    model = args.model
+    year = args.year
+    month = args.month
 
     model_lower = model.lower()
+    print(f"[INFO] model: {model}, year: {year}, month: {month}", flush = True)
+
     compression = 300
 
     db_path = Path(

@@ -4,7 +4,7 @@
 from pathlib import Path
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from typing import Dict
+#from typing import Dict
 import pickle
 import sqlite3
 import yaml
@@ -14,12 +14,10 @@ import pandas as pd
 import dask
 from dask import delayed
 import argparse
+from pytdigest import TDigest
 
 from quads.get_collections_and_files import list_files_and_excluded_vars
 from quads.sanity_check_v2 import fence
-
-
-from pytdigest import TDigest
 from quads.make_tdigest import get_quantiles_from_tdigest  # returns (quantiles, quantile_list)
 
 # Coordinate name preferences (in order)
@@ -27,17 +25,17 @@ LEV_NAMES = ["lev", "level", "pressure"]
 LAT_NAMES = ["lat", "latitude", "y"]
 
 # -----------------------------
-# helpers
+# helper functions
 # -----------------------------
-def load_strata(strata_yaml_file: str | Path) -> Dict[str, Dict]:
+def load_strata(strata_yaml_file: str | Path) -> dict[str, dict]:
     """Load the 'STRATA' section from the provided YAML file."""
     with open(strata_yaml_file, "r") as f:
         return yaml.safe_load(f)["STRATA"]
 
 
-def load_tdigest_from_db(db_path: Path, model: str, year: int, month: int, id_string: str):
+def load_tdigest_from_db(db_path: Path, model: str, year: int, month: int, id_string: str) -> dict | None:
     """
-    Fetch (compression, centroids, quantiles, quantile_list) for a given key/month from SQLite.
+    Fetch (compression, centroids, quantiles, quantile_list) for a given set of unique identifiers from SQLite.
     Returns None if not found.
     """
     table_name = model.lower()
@@ -68,7 +66,7 @@ def load_tdigest_from_db(db_path: Path, model: str, year: int, month: int, id_st
             }
 
 
-def combine_tdigest_refs(refs: list[dict]):
+def combine_tdigest_refs(refs: list[dict]) -> TDigest | None:
     """
     combine multiple DB-loaded tdigest references.
     """
@@ -88,34 +86,53 @@ def combine_tdigest_refs(refs: list[dict]):
     
     return td_merged
 
+def check_physical_constraints(constraints_dict: dict[str, dict[str, bool]],
+                               variable: str,) -> tuple[bool, bool, bool]:
+    """ read the yaml file to figure out the physical constraints """
+    values = constraints_dict.get(variable, {})
+    return (values.get("is_positive", False), 
+            values.get("is_fractional", False),
+            values.get("is_priority", False)
+            )
+
 @delayed
 def analyse(da_sel,
             key,
             model,
-            reference_year,
-            reference_month,
+            historical_reference_dates,
             database_path,
-            ):
+            is_positive,
+            is_fractional,
+            is_high_priority,
+            ) -> tuple[list, pd.DataFrame] | None:
     """
-    Compute results for the given data slice and collect violated data points
+    Compute results for the given data slice and collect violated data points.
     Reference is built by combining TDigests from 3 relevant months of previous 
-    year. reference year and month are exactly one year earlier than where da_sel is from
+    3 years.
+    is_positive, is_fractional, and is_high_priority are read from physical constraint yaml file 
+    and are used to modify the t-digest fence later
     """
 
     refs = []
     
-    ref_date = datetime(reference_year, reference_month, 1) # day is place holder
-    for delta in (-1, 0, 1):
-        d = ref_date + relativedelta(months=delta)
-        y, m = d.year, d.month
+    ref_dates = historical_reference_dates # it is yyyy-mm-dd format, but dd is not needed below
+    for ref_date in ref_dates:
+        for delta in (-1, 0, 1):
+            d = ref_date + relativedelta(months=delta)
+            y, m = d.year, d.month
         
-        ref = load_tdigest_from_db(db_path=database_path, model=model, year=y, month=m, id_string=key)
-        if ref is not None:
-            refs.append(ref)
+            ref = load_tdigest_from_db(db_path=database_path, model=model, year=y, month=m, id_string=key)
+            if ref is not None:
+                refs.append(ref)
+            else:
+                print(f"Warning: no tdigest found for year: {y}, month: {m} and id_string: {key}")
     
     if not refs:
         print("No reference tdigest data  available")
         return None
+    if len(refs) < 9:
+
+        print(f"Warning: does not have enough number of historical references. Only {len(refs)} found.")
 
     td_ref = combine_tdigest_refs(refs)
 
@@ -126,10 +143,20 @@ def analyse(da_sel,
 
     quantiles, qlist = ref_quantiles
     fence_low, fence_high = fence(ref_quantiles)
-    
+
+    if is_positive:
+        if fence_low < 0:
+            fence_low = 0
+
+    if is_fractional:
+        if fence_low < 0:
+            fence_low = 0
+        if fence_high > 1:
+            fence_high = 1
+ 
     mask_low = da_sel < fence_low
     mask_high = da_sel > fence_high
-    mask_bad = mask_low | mask_high
+    mask_bad = mask_low | mask_high 
 
     n_low, n_high = dask.compute(mask_low.sum(), mask_high.sum())
     n_low = int(n_low)
@@ -137,7 +164,7 @@ def analyse(da_sel,
     n_tot = n_low + n_high
 
 
-    summary_row = (key, n_low, n_high, n_tot, fence_low, fence_high,  quantiles, qlist)
+    summary_row = (key, n_low, n_high, n_tot, fence_low, fence_high,  quantiles, qlist, is_positive, is_fractional, is_high_priority)
 
     violations_df = None
 
@@ -152,6 +179,9 @@ def analyse(da_sel,
         violations_df["id_string"] = key
         violations_df["fence_low"] = fence_low
         violations_df["fence_high"] = fence_high
+        violations_df["is_positive"] = is_positive
+        violations_df["is_fractional"] = is_fractional
+        violations_df["is_high_priority"] = is_high_priority
 
     return summary_row, violations_df
 # -----------------------------
@@ -162,24 +192,38 @@ def compute_and_save_results(
     date: datetime,
     data_yaml_file: str,
     strata_file: str,
-    historical_reference_date: datetime,
     db_path: str | Path,
+    physical_constraints_yaml_path: str | Path,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     For each (collection,var,level,stratum) slice, computes:
       - fetch reference quantiles from SQLite (for this model/year/month/id)
-      - return: a datafame including  id_string, no_of_violations, quantiles, quantile_list for all slices
+      - return: a datafame including  id_string, no_of_violations, quantiles, quantile_list for slices with violations
                 a dataframe that includes all outliers (a subset of entire day worth of data)
+    model: model name
+    date: the day you want to analyze
+    data_yaml_file: path of the file having the netcd file address and collection lists for a given model
+    strata_file: file for latitude stratum list
+    db_path: SQLite databse path for historical tdigest results (monthly results)
     """
     # Resolve files and exclusions from YAML
     _, collection_dict, excluded = list_files_and_excluded_vars(
         model=model, date=date, data_yaml_file=data_yaml_file
     )
+    
+    year_list = [1, 2, 3]
+    historical_reference_dates = [date - relativedelta(years=year, months=0) for year in year_list] 
 
     # Load strata definitions
     strata = load_strata(strata_file)
 
-    df = pd.DataFrame(columns=["id_string", "no_of_violations_left", "no_of_violations_right", "no_of_total_violations", "fence_low","fence_high", "quantile_values", "q_list"])
+    # load the physical constraint data
+    with open(physical_constraints_yaml_path, "r") as f:
+        data = yaml.safe_load(f)
+
+    constraints_dict = data.get("PHYSICAL_CONSTRAINTS", {})
+
+    df = pd.DataFrame(columns=["id_string", "no_of_violations_left", "no_of_violations_right", "no_of_total_violations", "fence_low","fence_high", "quantile_values", "q_list", "is_positive", "is_fractional", "is_high_priority"])
 
     all_violations_tables = []
 
@@ -190,7 +234,7 @@ def compute_and_save_results(
         if model in ["MERRA2"]:
             day = date.day
             tag = f"{day:02d}.nc4" # note the assumption here
-            files = [fi for fi in files if fi.endswith(tag)]
+            files = [fi for fi in files if fi.endswith(tag)] # filtering daily files
             print(day, files)
             #print(files)
         ds = xr.open_mfdataset(
@@ -204,9 +248,6 @@ def compute_and_save_results(
             chunks="auto",
             parallel=True,
         )
-        #print(ds.dims)
-        #print(ds.coords)
-        #print(ds.coords["lev"].values)
 
         # 3.2) Identify coordinate names (lat, optional level).
         lat_name = next((c for c in LAT_NAMES if c in ds.coords), None) # first matching candidate
@@ -221,6 +262,9 @@ def compute_and_save_results(
 
         # 3.3) For each variable...
         for var in ds.data_vars:
+            # check physical bounds
+            is_positive, is_fractional, is_high_priority = check_physical_constraints(constraints_dict, var)
+
             da = ds[var]
 
             #print(var)
@@ -249,11 +293,12 @@ def compute_and_save_results(
                     id_key = f"{coll_name}|{var}|{lev_val}|{sname}"
 
                     # 3.6) Queue the job.
-                    delayed_jobs.append(analyse(da_sel, id_key, model, historical_reference_date.year, historical_reference_date.month, Path(db_path)))
+                    delayed_jobs.append(analyse(da_sel, id_key, model, historical_reference_dates,
+                                                Path(db_path),is_positive, is_fractional, is_high_priority))
                 
 
         print(len(delayed_jobs))
-        finished = dask.compute(*delayed_jobs, scheduler="threads")
+        finished = dask.compute(*delayed_jobs, scheduler="threads", num_workers=32)
         finished = [x for x in finished if x is not None]
         if finished:
             summary_rows = []
@@ -297,10 +342,9 @@ if __name__ == "__main__":
 
     model_lower = model.lower()
 
-    historical_reference_date = date - relativedelta(years=1, months=0)
-
     data_yaml_file = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/dataserver.yaml"
     strata_file = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/strata.yaml"
+    physical_constraints_yaml_path = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/GEOS_PHYSICAL_CONSTRAINTS.yaml"
     db_path = Path(f"/home/sadhika8/JupyterLinks/nobackup/quads_database/{model_lower}_monthly_aggregated_centroids_and_quantiles.db")
     results_base_path = Path(f"/home/sadhika8/JupyterLinks/nobackup/quads_results")
     results_base_path.mkdir(parents=True, exist_ok=True)
@@ -312,10 +356,10 @@ if __name__ == "__main__":
         date=date,
         data_yaml_file=data_yaml_file,
         strata_file=strata_file,
-        historical_reference_date=historical_reference_date,
         db_path=db_path,
+        physical_constraints_yaml_path = physical_constraints_yaml_path,
     )
-    df = df.sort_values(by="no_of_total_violations", ascending=False)
+    df = df.sort_values(by=["is_high_priority", "no_of_total_violations"], ascending=[False, False])
 
      # One daily file under out_dir/model/YYYY/MM/YYYY-MM-DD.pkl, one monthly for GEOSIT
     base = results_base_path

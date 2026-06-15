@@ -28,6 +28,7 @@ MONTH_PADDED=$(printf "%02d" "${MONTH}")
 DAY_PADDED=$(printf "%02d" "${SLURM_ARRAY_TASK_ID}")
 DATE_STR="${YEAR}-${MONTH_PADDED}-${DAY_PADDED}"
 
+# ignore invalid days
 CHECK_MONTH=$(date -d "${DATE_STR}" +%m 2>/dev/null || echo "XX")
 if [ "${CHECK_MONTH}" != "${MONTH_PADDED}" ]; then
     echo "Skipping invalid date: ${DATE_STR}"

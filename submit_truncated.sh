@@ -4,14 +4,14 @@ set -euo pipefail
 # -----------------------------
 # Inputs
 # -----------------------------
-YEAR=2023
-MONTH=3
-MODEL="GEOSIT"
+YEAR=2021
+MONTH=2
+MODEL="GEOSFP"
 
 # -----------------------------
 # Pipeline submission
 # -----------------------------
-jid3=$(sbatch --parsable --export=ALL,YEAR=$YEAR,MONTH=$MONTH,MODEL=$MODEL copy_from_pikle_to_datbase.sh)
+jid3=$(sbatch --parsable --export=ALL,YEAR=$YEAR,MONTH=$MONTH,MODEL=$MODEL copy_from_pickle_to_database.sh)
 echo "Submitted step3 (sqlite populate): $jid3"
 
 echo "Done. Jobs:"

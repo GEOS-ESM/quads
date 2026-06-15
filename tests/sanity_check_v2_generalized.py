@@ -24,6 +24,14 @@ def cdf(q, reference_quantile_data):
     data = np.asarray(data, dtype=float)
     quantile_list = np.asarray(quantile_list, dtype=float)
 
+    # Sort by quantile, just in case
+    order = np.argsort(quantile_list)
+    quantile_list = quantile_list[order]
+    data = data[order]
+
+    # Clamp q to valid range
+    q = np.clip(q, quantile_list[0], quantile_list[-1])
+
     # Linear interpolation
     return np.interp(q, quantile_list, data)
 
