@@ -27,6 +27,12 @@ source /home/sadhika8/JupyterLinks/nobackup/quads_dev/.venv/bin/activate # activ
 MODEL="GEOSFP"
 DATE="2024-2"
 
+mkdir -p submission_records
+
+LOGFILE="submission_records/user_results_submission.log"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') Compute results jobs submitted for MODEL=$MODEL MONTH=$DATE" >> "$LOGFILE"
+
 LOG_BASE="/home/sadhika8/JupyterLinks/nobackup/quads_dev/log_files/quads_user_${MODEL}_${DATE}.${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 exec > "${LOG_BASE}.out" 2> "${LOG_BASE}.err"
 #

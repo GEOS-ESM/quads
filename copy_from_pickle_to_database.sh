@@ -23,7 +23,20 @@ MODEL=${MODEL:-MERRA2}
 
 echo "Copying monthly digests to SQLite for MODEL=${MODEL}, YEAR=${YEAR}, MONTH=${MONTH}"
 
+# go to /home/sadhika8/JupyterLinks/nobackup
+ 
 python -u -m quads.copy_from_monthly_pickle_to_sqlitedb \
 	--model "$MODEL" \
 	--year "$YEAR" \
 	--month "$MONTH"
+
+# now delete all daily .pkl files -- careful here!
+
+MONTH_DIR="/home/sadhika8/JupyterLinks/nobackup/quads_results/${MODEL}/${YEAR}/${MONTH}"
+
+if [[ -d "$MONTH_DIR" ]]; then
+    echo "Deleting daily pickle files in $MONTH_DIR"
+    rm -f "${MONTH_DIR}/${YEAR}"*.pkl
+else
+    echo "Directory not found: $MONTH_DIR"
+fi
