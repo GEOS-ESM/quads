@@ -128,7 +128,7 @@ def analyse(da_sel,
                 print(f"Warning: no tdigest found for year: {y}, month: {m} and id_string: {key}")
     
     if not refs:
-        print("No reference tdigest data  available")
+        print("No reference tdigest data available")
         return None
     if len(refs) < 9:
 
@@ -183,6 +183,13 @@ def analyse(da_sel,
         violations_df["is_fractional"] = is_fractional
         violations_df["is_high_priority"] = is_high_priority
 
+        # now sort it with "value" in descending order 
+        # return only 10000 values, at most
+        violations_df = (
+                violations_df.sort_values(by="value", ascending=False)
+                .head(10_000)
+        )
+
     return summary_row, violations_df
 # -----------------------------
 # main driver
@@ -226,6 +233,7 @@ def compute_and_save_results(
     df = pd.DataFrame(columns=["id_string", "no_of_violations_left", "no_of_violations_right", "no_of_total_violations", "fence_low","fence_high", "quantile_values", "q_list", "is_positive", "is_fractional", "is_high_priority"])
 
     all_violations_tables = []
+    total_violation_rows = 0
 
     for coll_name, files in collection_dict.items():
         #if coll_name != "inst3_2d_asm_Nx":
@@ -235,7 +243,8 @@ def compute_and_save_results(
             day = date.day
             tag = f"{day:02d}.nc4" # note the assumption here
             files = [fi for fi in files if fi.endswith(tag)] # filtering daily files
-            print(day, files)
+            
+            #print(day, files)
             #print(files)
         ds = xr.open_mfdataset(
             files,
@@ -297,7 +306,7 @@ def compute_and_save_results(
                                                 Path(db_path),is_positive, is_fractional, is_high_priority))
                 
 
-        print(len(delayed_jobs))
+        print(f"Number of data slices processing in parallel for collection {coll_name}: {len(delayed_jobs)}")
         finished = dask.compute(*delayed_jobs, scheduler="threads", num_workers=32)
         finished = [x for x in finished if x is not None]
         if finished:
@@ -316,7 +325,14 @@ def compute_and_save_results(
                 df = new_df
             else:
                 df = pd.concat([df, new_df], ignore_index=True)
-            all_violations_tables.extend(violation_tables)
+
+            if total_violation_rows < 500_000_000:
+                all_violations_tables.extend(violation_tables)
+                total_violation_rows += sum(len(table) for table in violation_tables)
+            else:
+                print("Already exceeded 500M; skipping furter storing outlier data")
+
+        ds.close()
 
     if all_violations_tables:
         violations_all = pd.concat(all_violations_tables, ignore_index=True)
@@ -360,8 +376,9 @@ if __name__ == "__main__":
         physical_constraints_yaml_path = physical_constraints_yaml_path,
     )
     df = df.sort_values(by=["is_high_priority", "no_of_total_violations"], ascending=[False, False])
-
-     # One daily file under out_dir/model/YYYY/MM/YYYY-MM-DD.pkl, one monthly for GEOSIT
+    
+    print(f"Shape of violations_df: {violations_df.shape}")
+    # One daily file under out_dir/model/YYYY/MM/YYYY-MM-DD.pkl, one monthly for GEOSIT
     base = results_base_path
     year_dir = base / model / f"{date.year:04d}"
     month_dir = year_dir / f"{date.month:02d}"

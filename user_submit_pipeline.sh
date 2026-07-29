@@ -6,7 +6,8 @@
 #SBATCH --time=6:00:00
 #SBATCH --nodes=1
 #SBATCH --exclusive
-#SBATCH --array=1-31
+#SBATCH --array=1-31 
+# original: #SBATCH --array=1-31
 
 set -euo pipefail
 
@@ -25,7 +26,7 @@ source /home/sadhika8/JupyterLinks/nobackup/quads_dev/.venv/bin/activate # activ
 # user inputs
 
 MODEL="GEOSFP"
-DATE="2024-2"
+DATE="2026-6"
 
 mkdir -p submission_records
 

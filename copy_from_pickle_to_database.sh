@@ -31,8 +31,8 @@ python -u -m quads.copy_from_monthly_pickle_to_sqlitedb \
 	--month "$MONTH"
 
 # now delete all daily .pkl files -- careful here!
-
-MONTH_DIR="/home/sadhika8/JupyterLinks/nobackup/quads_results/${MODEL}/${YEAR}/${MONTH}"
+MONTH_PADDED=$(printf "%02d" "$MONTH")
+MONTH_DIR="/home/sadhika8/JupyterLinks/nobackup/quads_data/${MODEL}/${YEAR}/${MONTH_PADDED}"
 
 if [[ -d "$MONTH_DIR" ]]; then
     echo "Deleting daily pickle files in $MONTH_DIR"
@@ -40,3 +40,4 @@ if [[ -d "$MONTH_DIR" ]]; then
 else
     echo "Directory not found: $MONTH_DIR"
 fi
+
