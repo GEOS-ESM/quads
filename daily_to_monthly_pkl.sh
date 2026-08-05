@@ -2,8 +2,6 @@
 #SBATCH --job-name=merge_month
 #SBATCH --account=s2441
 #SBATCH --time=0:40:00
-#SBATCH --nodes=1
-#SBATCH --exclusive
 #SBATCH --output=/home/sadhika8/JupyterLinks/nobackup/quads_dev/log_files/file.%j.out
 #SBATCH --error=/home/sadhika8/JupyterLinks/nobackup/quads_dev/log_files/file.%j.err
 

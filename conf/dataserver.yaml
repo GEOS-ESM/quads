@@ -1,11 +1,12 @@
-# List the "collections" and excluded vars  of each model explicitely
+# For each model, List: file path, collection, excluded vars
 
 MODELS:
   GEOSIT:
     ID: 'GEOSIT'
-    SRC: '/discover/nobackup/projects/gmao/geos-it/dao_ops/intermediate/d5294_geosit_jan18/diag/Y%Y/M%m'
-    FILES: 'd5294_geosit_jan18.*.%Y-%m-%dT%H%M*.nc' # not used
+    SRC: '/css/gmao/geos-it/products/Y%Y/M%m/D%d'
+    FILES: 'd5294_geosit_jan18.*.%Y-%m-%dT%H%M*.nc' # ignore it, not used
     COLLECTIONS:
+      - asm_const_0hr_glo_L576x361_slv
       - mst_tavg_3hr_glo_L576x361_v73
       - asm_inst_3hr_glo_L576x361_p42
       - asm_tavg_3hr_glo_L576x361_v72
@@ -19,7 +20,6 @@ MODELS:
       - asm_inst_1hr_glo_L576x361_slv
       - flx_tavg_1hr_glo_L576x361_slv
       - rad_tavg_3hr_glo_L576x361_v72
-      - asm_const_0hr_glo_L576x361_slv
       - mst_tavg_3hr_glo_L576x361_v72
       - asm_inst_3hr_glo_L576x361_v72
       - trb_tavg_3hr_glo_L576x361_v73
@@ -77,7 +77,7 @@ MODELS:
   GEOSCF:
     ID: 'GEOSCF'
     SRC: '/discover/nobackup/projects/gmao/geos_cf/pub/GEOS-CF_NRT/ana/Y%Y/M%m/D%d' 
-    FILES: 'GEOS-CF.v01.rpl.%C.%Y%m%d_*z.nc'
+    FILES: 'GEOS-CF.v01.rpl.%C.%Y%m%d_*z.nc' # not used
     COLLECTIONS:
       - aqc_tavg_1hr_g1440x721_v1
       - chm_inst_1hr_g1440x721_p23
@@ -102,8 +102,8 @@ MODELS:
 
   MERRA2:
     ID: 'MERRA2'
-    SRC: '/discover/nobackup/projects/gmao/merra2/data/pub/products/MERRA2_400/Y%Y/M%m'
-    FILES: 'MERRA2_400.*.%Y%m%d.nc'
+    SRC: '/discover/nobackup/projects/gmao/merra2/data/products/MERRA2_all/Y%Y/M%m'
+    FILES: 'MERRA2_400.*.%Y%m%d.nc' # not used
     COLLECTIONS:
       - inst1_2d_asm_Nx
       - inst1_2d_int_Nx
@@ -160,12 +160,12 @@ PLACEHOLDERS:
   collection: '%C'
   version: '%V'
 
-FieldID_Attributes:
+dataslice_key_id:
   - 'model'
+  - 'date'
   - 'collection'
-  - 'expid'
-  - 'field'
-  - 'vartype'
-  - 'units'
+  - 'variable'
   - 'lev'
+  - 'stratum'
+
 

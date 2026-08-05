@@ -11,7 +11,7 @@ def list_files_and_excluded_vars(
     data_yaml_file: str | Path
 ) -> tuple[list[str], Dict[str, list[str]], list[str]]:
     """
-    For given model and date, finds a list of files in each collections using only the collection name token embedded in filenames.
+    For given model and date (Merra2 ignores the day), finds a list of files in each collections using only the collection name token embedded in filenames.
       - Reads the address of the data directory from an YAML file, also gets a list of 'COLLECTIONS'.
       - For each collection listed in the YAML, finds files whose names contain the
         collection token (substring match) within that directory tree.
@@ -41,9 +41,10 @@ def list_files_and_excluded_vars(
     cfg = yaml.safe_load(Path(data_yaml_file).read_text())['MODELS'][model]
 
     # Resolve the search root for this date.
-    root = Path(date.strftime(cfg['SRC'])) #.expanduser()
-    file_format = cfg["FILES"]
-    print(file_format)
+    root = Path(date.strftime(cfg['SRC'])) #.expanduser() # this is the key step here that 
+    # allows merra2 ignore the -day- entry
+    #file_format = cfg["FILES"]
+   # print(file_format)
     print(root)
 
     # Collections must be provided in the YAML.
@@ -55,21 +56,20 @@ def list_files_and_excluded_vars(
 
     # Search per collection by token in filename; filter by extension.
     for c in collections:
-        #pattern = f"*{c}*"
-        #if '.' in c:
-        #    pattern = f"*{c}.*"
-        #else:
-         #   pattern = f"*{c}.[0-9]*"
-
-        pattern = f"*{c}.[0-9]*" # it excludes ave, monthly, etc 
+        
+        if model == "GEOSIT":
+            pattern = f"*{c}*"
+        else:
+            pattern = f"*{c}.[0-9]*" # it excludes ave, monthly, etc 
 
         hits = [
             str(p)
-            for p in root.glob(pattern) # this does not look into subdirs
+            for p in root.glob(pattern) #  this does not look into subdirs
             if p.suffix in allowed_exts
         ]
-        collection_map[c] = hits
-        files.extend(hits)
+        if hits: # ignore collections with no files
+            collection_map[c] = hits
+            files.extend(hits)
 
     # Excluded vars.
     excluded = list(cfg.get('EXCLUDED_VARS'))
@@ -77,8 +77,8 @@ def list_files_and_excluded_vars(
     return files, collection_map, excluded
 
 if __name__ == "__main__":
-    results = list_files_and_excluded_vars("GEOSFP", datetime(2024, 2, 1),"/home/sadhika8/JupyterLinks/nobackup/quads/conf/dataserver.yaml") 
-    #print(results[1]['inst1_2d_int_Nx'])
+    results = list_files_and_excluded_vars("GEOSFP", datetime(2025, 6, 1),"/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/dataserver.yaml") 
+    print(results[1]['inst3_3d_aer_Nv'])
     dic = results[1]
     summ = 0
     for key, value in dic.items():
@@ -91,9 +91,7 @@ if __name__ == "__main__":
 # NOTE:2. Only looks for .nc and .nc4 files, excluding any other formats
 # NOTE:3. Note how the code can handle  both daily and monthly sub directories - date.strftime() converts a datatime object (date here) into a formatted string 
 # datetime, Path(datetime) -> converts datetime into a path object, Path(string).glob() -- gives all file and folder list at that address, not recursive
+# for a given date: YYYY-MM-DD, for merra2, the code goes it the right monthly subdir ignoring the date. It is intentional as we only need monthly aggregates later while
+# building the database. But the files need to "ungrouped" while compuing daily results for the users.
 
-
-# GEOSIT and MERRA2 seem confusing in terms of the collections they have
-# MERRA2: has files stored in monthly subdirs. In addition to daily files they have .avg, .montly, and .diurnal and my script (pattern) excludes them. Might need to talk to the scientists again.
-# GEOSIT: has only aggregated files, e.g. see here: /discover/nobackup/projects/gmao/geos-it/dao_ops/intermediate/d5294_geosit_jan18/diag/Y2024/M03, it only has .avg, .monthly, and .diurnal files. 
 # Alexey told me to ignore them -- so, now I am moving forward with my code development with only the three models GEOSFP (daily subdirs), GEOSCF (daily subdirs), and MERRA2 (monthly subdirs). 

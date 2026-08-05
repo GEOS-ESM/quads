@@ -1,0 +1,1 @@
+find /css/gmao/geos-it/products/Y2023/M03/D01 -type f -name "*.nc4" | wc -l

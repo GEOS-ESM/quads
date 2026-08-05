@@ -6,8 +6,8 @@
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --exclusive
-#SBATCH --output=/home/sadhika8/JupyterLinks/nobackup/quads/src/log_files/file.%j.out
-#SBATCH --error=/home/sadhika8/JupyterLinks/nobackup/quads/src/log_files/file.%j.err
+#SBATCH --output=/home/sadhika8/JupyterLinks/nobackup/quads_dev/log_files/typeB/file.%j.out
+#SBATCH --error=/home/sadhika8/JupyterLinks/nobackup/quads_dev/log_files/typeB/file.%j.err
 
 set -euo pipefail
 
@@ -27,6 +27,9 @@ MONTH=${MONTH:-5}
 MODEL=${MODEL:-MERRA2}
 
 DAY=1  # dummy day - can use any value for the day, but an input is needed for formatting consistency
+# the central function in "compute_and_save_daily_digests.py" needs a full date string, including day, as# its argument. That date string is then passed to "get_collections_and_files.py"
+# For Merra2, (see the dataserver.yaml), the file format get_collections_and_files.py reads is only
+# yyyy-mm. So, the -day value will be effectively ignored, meaning all the monthly files are read
 
 MONTH_PADDED=$(printf "%02d" "${MONTH}")
 DAY_PADDED=$(printf "%02d" "${DAY}")
@@ -34,7 +37,7 @@ DATE_STR="${YEAR}-${MONTH_PADDED}-${DAY_PADDED}"
 
 echo "Running for DATE=${DATE_STR}, MODEL=${MODEL}"
 
-srun python -u -m compute_and_save_daily_digests \
+srun python -u -m quads.compute_and_save_daily_digests \
     --date "${DATE_STR}" \
     --model "${MODEL}"
 

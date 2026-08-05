@@ -1,5 +1,5 @@
 # This is the main python script for quads
-''' Computes daily digests and saves them on a .pkl file. For MERRA2 and GEOSIT, there will be a montly digest as the source data are stored in montly subdirectories'''
+''' Computes daily digests and saves them on a .pkl file. For MERRA2, there will be a montly digest as the source data are stored in montly subdirectories'''
 
 from pathlib import Path
 from datetime import datetime
@@ -62,7 +62,7 @@ def compute_results(
     """
     Computes t-digests and returns all results for this day (or month, depending on the model) as a list
     of payload dicts. Writing to disk is handled in __main__.
-    <date> - day of interest
+    <date> - day of interest. For MERRA2, day is ignored (see get_collections_and_files.py) although it needs to be passed as a dummy variable
     <data_yaml_file> - path of config file with input data address
     <strata_file> - path of config file listing lat/lon strata
     """
@@ -160,7 +160,7 @@ def compute_results(
         # 4) Execute all delayed jobs (reads ➜ computes ➜ returns payloads).
         if delayed_jobs:
             start = datetime.now()
-            finished = dask.compute(*delayed_jobs, scheduler="threads", num_workers=40)
+            finished = dask.compute(*delayed_jobs, scheduler="threads", num_workers=32)
             finished = [elem for elem in finished if elem is not None]
             end = datetime.now()
             print(
@@ -193,8 +193,8 @@ if __name__ == "__main__":
     # date: 
     date = datetime.strptime(args.date, "%Y-%m-%d")
 
-    data_yaml_file = "/home/sadhika8/JupyterLinks/nobackup/quads/conf/dataserver.yaml"
-    strata_file = "/home/sadhika8/JupyterLinks/nobackup/quads/conf/strata.yaml"
+    data_yaml_file = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/dataserver.yaml"
+    strata_file = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/strata.yaml"
 
     results = compute_results(
         model=model,
@@ -203,7 +203,7 @@ if __name__ == "__main__":
         strata_file=strata_file,
     )
 
-    # One daily file under out_dir/model/YYYY/MM/YYYY-MM-DD.pkl, one monthly for MERRA2 and GEOSIT
+    # One daily file under out_dir/model/YYYY/MM/YYYY-MM-DD.pkl, one monthly for MERRA2
     base = Path(out_dir)
     year_dir = base / model / f"{date.year:04d}"
     month_dir = year_dir / f"{date.month:02d}"
@@ -212,10 +212,10 @@ if __name__ == "__main__":
     day_str = date.strftime("%Y-%m-%d")
     month_str = date.strftime("%Y-%m")
 
-    if model in ["GEOSFP", "GEOSCF"]:
+    if model in ["GEOSFP", "GEOSCF", "GEOSIT"]:
         final = month_dir / f"{day_str}.pkl"
         tmp = month_dir / f".{day_str}.pkl.tmp"
-    else: # directly writes a monthly aggregated .pkl in case of GEOSIT and MERRA2
+    else: # directly writes a monthly aggregated .pkl in case of MERRA2
         aggregated_month_str = f"monthly_merged_digest_{model}_{month_str}"
         final = month_dir / f"{aggregated_month_str}.pkl"
         tmp = month_dir / f".{aggregated_month_str}.pkl.tmp"
