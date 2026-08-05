@@ -4,7 +4,7 @@ set -euo pipefail
 # -----------------------------
 # Inputs, for geosfp and geoscf
 # -----------------------------
-YEAR=2023
+YEAR=2021
 MONTH=2
 MODEL="GEOSFP"
 
@@ -14,7 +14,7 @@ MODEL="GEOSFP"
 jid2=$(sbatch --parsable --export=ALL,YEAR=$YEAR,MONTH=$MONTH,MODEL=$MODEL daily_to_monthly_pkl.sh)
 echo "Submitted step2 (merge monthly): $jid2"
 
-jid3=$(sbatch --parsable --dependency=afterok:$jid2 --export=ALL,YEAR=$YEAR,MONTH=$MONTH,MODEL=$MODEL copy_from_pikle_to_datbase.sh)
+jid3=$(sbatch --parsable --dependency=afterok:$jid2 --export=ALL,YEAR=$YEAR,MONTH=$MONTH,MODEL=$MODEL copy_from_pickle_to_database.sh)
 echo "Submitted step3 (sqlite populate): $jid3"
 
 echo "Done. Jobs:"

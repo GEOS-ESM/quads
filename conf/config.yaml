@@ -6,7 +6,6 @@ JAVA_SOURCE: 'tdigest'
 
 QUADS_DB_ROOT: '/discover/nobackup/ashiklom/thamzey/NOBACKUP/quads/'
 
-
 SWsize: 3
 
 SQL_SCHEMA_FILE: '/discover/nobackup/ashiklom/thamzey/HOME/quadsql/quads/dataservice/sqlite_schema.sql'

@@ -9,14 +9,23 @@ tail_scalar = 1.5
 median_scalar =  6
 #PSI_threshold = 1.5 - to be done
 
+
 def cdf(q, reference_quantile_data):
-    """given a reference_quantile data, a tuple of quantile data and quantile list, and q, find 
-    what data is there at quantile q"""
-    # pick nearest quantile instead of exact float equality
-    data, quantile_list = reference_quantile_data  # comes from get_quantiles_from_tdigest, gives two lists data, quantile list
-    quantile_list = np.asarray(quantile_list)
-    idx = int(np.argmin(np.abs(quantile_list - q)))
-    return data[idx]
+    """
+    Given reference quantile data `(data, quantile_list)` and a quantile q,
+    estimate the data value at quantile q using linear interpolation.
+
+    q: float in [0, 1]
+    data: values corresponding to quantiles
+    quantile_list: quantiles corresponding to data
+    """
+    data, quantile_list = reference_quantile_data
+
+    data = np.asarray(data, dtype=float)
+    quantile_list = np.asarray(quantile_list, dtype=float)
+
+    # Linear interpolation
+    return np.interp(q, quantile_list, data)
 
 def fence(data):
     """find the fence for given reference_quantile_data"""
