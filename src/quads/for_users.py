@@ -104,7 +104,7 @@ def analyse(da_sel,
             is_positive,
             is_fractional,
             is_high_priority,
-            ) -> tuple[list, pd.DataFrame] | None:
+            ) -> tuple[tuple, pd.DataFrame] | str:
     """
     Compute results for the given data slice and collect violated data points.
     Reference is built by combining TDigests from 3 relevant months of previous 
@@ -124,20 +124,18 @@ def analyse(da_sel,
             ref = load_tdigest_from_db(db_path=database_path, model=model, year=y, month=m, id_string=key)
             if ref is not None:
                 refs.append(ref)
-            else:
-                print(f"Warning: no tdigest found for year: {y}, month: {m} and id_string: {key}")
+            #else:
+            #    print(f"Warning: no tdigest found for year: {y}, month: {m} and id_string: {key}")
     
     if not refs:
         print("No reference tdigest data available")
-        return None
+        return key
     if len(refs) < 9:
 
         print(f"Warning: does not have enough number of historical references. Only {len(refs)} found.")
 
     td_ref = combine_tdigest_refs(refs)
 
-    if td_ref is None:
-        return None
 
     ref_quantiles = get_quantiles_from_tdigest(td_ref)
 
@@ -189,6 +187,7 @@ def analyse(da_sel,
                 violations_df.sort_values(by="value", ascending=False)
                 .head(10_000)
         )
+        #print(f"shape of violations_df: {violations_df.shape}")
 
     return summary_row, violations_df
 # -----------------------------
@@ -201,7 +200,7 @@ def compute_and_save_results(
     strata_file: str,
     db_path: str | Path,
     physical_constraints_yaml_path: str | Path,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     """
     For each (collection,var,level,stratum) slice, computes:
       - fetch reference quantiles from SQLite (for this model/year/month/id)
@@ -234,6 +233,7 @@ def compute_and_save_results(
 
     all_violations_tables = []
     total_violation_rows = 0
+    all_failed_keys = []
 
     for coll_name, files in collection_dict.items():
         #if coll_name != "inst3_2d_asm_Nx":
@@ -307,8 +307,14 @@ def compute_and_save_results(
                 
 
         print(f"Number of data slices processing in parallel for collection {coll_name}: {len(delayed_jobs)}")
-        finished = dask.compute(*delayed_jobs, scheduler="threads", num_workers=32)
-        finished = [x for x in finished if x is not None]
+        results = dask.compute(*delayed_jobs, scheduler="threads", num_workers=32)
+        finished = [x for x in results if isinstance(x, tuple)] # useful results
+        failed = [x for x in results if isinstance(x, str)] # keys of data slices which had no historical reference tdigests to compare with
+        
+        unexpected = [x for x in results if not isinstance(x, (tuple, str))]
+        if unexpected:
+            raise TypeError(f"Unexpected analysis results: {unexpected!r}")
+
         if finished:
             summary_rows = []
             violation_tables = []
@@ -331,6 +337,8 @@ def compute_and_save_results(
                 total_violation_rows += sum(len(table) for table in violation_tables)
             else:
                 print("Already exceeded 500M; skipping furter storing outlier data")
+        
+        all_failed_keys.extend(failed)
 
         ds.close()
 
@@ -338,8 +346,9 @@ def compute_and_save_results(
         violations_all = pd.concat(all_violations_tables, ignore_index=True)
     else:
         violations_all = pd.DataFrame()
-
-    return df, violations_all
+    
+    print(all_failed_keys)
+    return df, violations_all, all_failed_keys
 
 
 # -----------------------------
@@ -367,7 +376,7 @@ if __name__ == "__main__":
 
     print(f"Running QUADS user job for MODEL={model}, DATE={date_str}")
 
-    df, violations_df = compute_and_save_results(
+    df, violations_df, failed_keys = compute_and_save_results(
         model=model,
         date=date,
         data_yaml_file=data_yaml_file,
@@ -410,4 +419,11 @@ if __name__ == "__main__":
         print(f"Saved violations to {violations_out_path}")
     else:
         print("No violations found; no parquet written")
+    
+    failed_keys_path = day_dir/"data_slices_with_no_historical_tdigests.txt"
+    if failed_keys:
+        failed_keys_path.write_text(
+                "\n".join(failed_keys) + "\n"
+                )
+
 

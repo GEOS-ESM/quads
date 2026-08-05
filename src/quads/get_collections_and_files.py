@@ -77,8 +77,8 @@ def list_files_and_excluded_vars(
     return files, collection_map, excluded
 
 if __name__ == "__main__":
-    results = list_files_and_excluded_vars("GEOSFP", datetime(2021, 1, 1),"/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/dataserver.yaml") 
-    #print(results[1]['inst1_2d_asm_Nx'])
+    results = list_files_and_excluded_vars("GEOSFP", datetime(2025, 6, 1),"/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/dataserver.yaml") 
+    print(results[1]['inst3_3d_aer_Nv'])
     dic = results[1]
     summ = 0
     for key, value in dic.items():

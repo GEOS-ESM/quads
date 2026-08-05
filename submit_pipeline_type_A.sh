@@ -4,8 +4,8 @@ set -euo pipefail
 # -----------------------------
 # Inputs for: geosfp, geoscf, and g (with daily file directories)
 # -----------------------------
-YEAR=2025
-MONTH=12
+YEAR=2022
+MONTH=10
 MODEL="GEOSFP"
 
 # -----------------------------
