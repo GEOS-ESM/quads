@@ -1,5 +1,6 @@
 # This is the main python script for quads
-''' Computes daily digests and saves them on a .pkl file. For MERRA2, there will be a montly digest as the source data are stored in montly subdirectories'''
+''' Computes daily digests and saves them on a .pkl file. For MERRA2, there will be a montly digest as the source data are stored in montly subdirectories. So, this script will run once per day for all models except for Merra2 for which
+it runs just once for a month'''
 
 from pathlib import Path
 from datetime import datetime
@@ -182,7 +183,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", help="Date in YYYY-MM-DD format")
-    parser.add_argument("--model", default="GEOSFP", help="Model name")
+    parser.add_argument("--model", required=True,  help="Model name")
     args = parser.parse_args()
 
     out_dir = "/home/sadhika8/JupyterLinks/nobackup/quads_data"

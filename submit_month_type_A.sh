@@ -20,9 +20,9 @@ export PYTHONNOUSERSITE=1
 source /home/sadhika8/JupyterLinks/nobackup/quads_dev/.venv/bin/activate # activates the virtual environment
 
 # Year/month/model for this run (allow sbatch --export to override)
-YEAR=${YEAR:-2024}
-MONTH=${MONTH:-4}
-MODEL=${MODEL:-GEOSFP}
+YEAR=${YEAR:?}
+MONTH=${MONTH:?}
+MODEL=${MODEL:?}
 
 MONTH_PADDED=$(printf "%02d" "${MONTH}")
 DAY_PADDED=$(printf "%02d" "${SLURM_ARRAY_TASK_ID}")

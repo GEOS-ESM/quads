@@ -26,7 +26,7 @@ source /home/sadhika8/JupyterLinks/nobackup/quads_dev/.venv/bin/activate # activ
 # user inputs
 
 MODEL="GEOSFP"
-DATE="2024-12"
+DATE="2026-6"
 
 mkdir -p submission_records
 

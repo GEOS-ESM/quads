@@ -68,7 +68,9 @@ def load_tdigest_from_db(db_path: Path, model: str, year: int, month: int, id_st
 
 def combine_tdigest_refs(refs: list[dict]) -> TDigest | None:
     """
-    combine multiple DB-loaded tdigest references.
+    merge multiple DB-loaded tdigest references 
+    so that the raw data can be compared against the 
+    merged t-digest quantiles
     """
     if not refs:
         return None
@@ -108,7 +110,7 @@ def analyse(da_sel,
     """
     Compute results for the given data slice and collect violated data points.
     Reference is built by combining TDigests from 3 relevant months of previous 
-    3 years.
+    3 years, total 9 months.
     is_positive, is_fractional, and is_high_priority are read from physical constraint yaml file 
     and are used to modify the t-digest fence later
     """
@@ -130,16 +132,18 @@ def analyse(da_sel,
     if not refs:
         print("No reference tdigest data available")
         return key
+
     if len(refs) < 9:
 
         print(f"Warning: does not have enough number of historical references. Only {len(refs)} found.")
 
+    # now merge
     td_ref = combine_tdigest_refs(refs)
 
 
     ref_quantiles = get_quantiles_from_tdigest(td_ref)
 
-    quantiles, qlist = ref_quantiles
+    quantiles, qlist = ref_quantiles # actual values, and q list
     fence_low, fence_high = fence(ref_quantiles)
 
     if is_positive:
@@ -164,7 +168,7 @@ def analyse(da_sel,
 
     summary_row = (key, n_low, n_high, n_tot, fence_low, fence_high,  quantiles, qlist, is_positive, is_fractional, is_high_priority)
 
-    violations_df = None
+    violations_df = None # all raw data
 
     if n_tot > 0:
         da_bad = da_sel.where(mask_bad, drop=True)
@@ -202,14 +206,14 @@ def compute_and_save_results(
     physical_constraints_yaml_path: str | Path,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     """
-    For each (collection,var,level,stratum) slice, computes:
+    For each (collection,var,level,stratum) slice:
       - fetch reference quantiles from SQLite (for this model/year/month/id)
       - return: a datafame including  id_string, no_of_violations, quantiles, quantile_list for slices with violations
-                a dataframe that includes all outliers (a subset of entire day worth of data)
+                a dataframe that includes all outliers (a subset of entire day worth of raw data)
     model: model name
-    date: the day you want to analyze
-    data_yaml_file: path of the file having the netcd file address and collection lists for a given model
-    strata_file: file for latitude stratum list
+    date: the day you want to test the data for
+    data_yaml_file: path to the yaml file that has the netcd files root and collection lists for a given model
+    strata_file: path to the yaml file for latitude stratum list
     db_path: SQLite databse path for historical tdigest results (monthly results)
     """
     # Resolve files and exclusions from YAML
@@ -218,7 +222,7 @@ def compute_and_save_results(
     )
     
     year_list = [1, 2, 3]
-    historical_reference_dates = [date - relativedelta(years=year, months=0) for year in year_list] 
+    historical_reference_dates = [date - relativedelta(years=year, months=0) for year in year_list] # years  
 
     # Load strata definitions
     strata = load_strata(strata_file)
@@ -229,11 +233,12 @@ def compute_and_save_results(
 
     constraints_dict = data.get("PHYSICAL_CONSTRAINTS", {})
 
-    df = pd.DataFrame(columns=["id_string", "no_of_violations_left", "no_of_violations_right", "no_of_total_violations", "fence_low","fence_high", "quantile_values", "q_list", "is_positive", "is_fractional", "is_high_priority"])
+    df = pd.DataFrame(columns=["id_string", "no_of_violations_left", "no_of_violations_right", "no_of_total_violations", 
+                               "fence_low", "fence_high", "quantile_values", "q_list", "is_positive", "is_fractional", "is_high_priority"])
 
     all_violations_tables = []
     total_violation_rows = 0
-    all_failed_keys = []
+    all_failed_keys = [f"list of failed keys for model: {model} and date: {date}"] # included header of the text file I will write enventually
 
     for coll_name, files in collection_dict.items():
         #if coll_name != "inst3_2d_asm_Nx":
@@ -241,8 +246,8 @@ def compute_and_save_results(
 
         if model in ["MERRA2"]:
             day = date.day
-            tag = f"{day:02d}.nc4" # note the assumption here
-            files = [fi for fi in files if fi.endswith(tag)] # filtering daily files
+            tags = (f"{day:02d}.nc4", f"{day:02d}.nc") # note the assumption here
+            files = [fi for fi in files if fi.endswith(tags)] # filtering files from that day only
             
             #print(day, files)
             #print(files)
@@ -303,7 +308,7 @@ def compute_and_save_results(
 
                     # 3.6) Queue the job.
                     delayed_jobs.append(analyse(da_sel, id_key, model, historical_reference_dates,
-                                                Path(db_path),is_positive, is_fractional, is_high_priority))
+                                                Path(db_path), is_positive, is_fractional, is_high_priority))
                 
 
         print(f"Number of data slices processing in parallel for collection {coll_name}: {len(delayed_jobs)}")
@@ -328,7 +333,7 @@ def compute_and_save_results(
 
             new_df = pd.DataFrame(summary_rows, columns=df.columns)
             if df.empty:
-                df = new_df
+                df = new_df.copy()
             else:
                 df = pd.concat([df, new_df], ignore_index=True)
 
@@ -350,7 +355,6 @@ def compute_and_save_results(
     print(all_failed_keys)
     return df, violations_all, all_failed_keys
 
-
 # -----------------------------
 # __main__
 # -----------------------------
@@ -366,7 +370,8 @@ if __name__ == "__main__":
     date = datetime.strptime(date_str, "%Y-%m-%d")
 
     model_lower = model.lower()
-
+    
+    # these hardcoded addresses might need to be changed later
     data_yaml_file = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/dataserver.yaml"
     strata_file = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/strata.yaml"
     physical_constraints_yaml_path = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/GEOS_PHYSICAL_CONSTRAINTS.yaml"
@@ -401,8 +406,8 @@ if __name__ == "__main__":
     out_path = day_dir / out_file
     df.to_pickle(out_path)
 
-    print(f"Created DataFrame '{df_var_name}' with {len(df)} rows.")
-    print(f"✔ Saved DataFrame to {out_path}")
+    print(f"Created Summary DataFrame with {len(df)} rows.")
+    print(f"Saved to {out_path}")
 
     violations_out_path = day_dir / f"{df_var_name}_violations_raw_data.parquet"
 
@@ -425,5 +430,6 @@ if __name__ == "__main__":
         failed_keys_path.write_text(
                 "\n".join(failed_keys) + "\n"
                 )
+        print("Wrote a list of data slices with no historical tdigests into a .txt file")
 
 

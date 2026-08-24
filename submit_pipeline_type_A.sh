@@ -17,7 +17,7 @@ echo "Submitted step1 (daily digests): $jid1"
 jid2=$(sbatch --parsable --dependency=afterany:$jid1 --export=ALL,YEAR=$YEAR,MONTH=$MONTH,MODEL=$MODEL daily_to_monthly_pkl.sh)
 echo "Submitted step2 (merge monthly): $jid2"
 # Notice 'afterany' here 
-jid3=$(sbatch --parsable --dependency=afterok:$jid2 --export=ALL,YEAR=$YEAR,MONTH=$MONTH,MODEL=$MODEL copy_from_pickle_to_database.sh)
+jid3=$(sbatch --parsable --dependency=afterok:$jid2,singleton --export=ALL,YEAR=$YEAR,MONTH=$MONTH,MODEL=$MODEL copy_from_pickle_to_database.sh)
 echo "Submitted step3 (sqlite populate): $jid3"
 
 mkdir -p submission_records
