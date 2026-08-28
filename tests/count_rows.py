@@ -3,11 +3,11 @@ from datetime import datetime
 
 DB_PATH = (
     "/home/sadhika8/JupyterLinks/nobackup/quads_database/"
-    "geosfp_monthly_aggregated_centroids_and_quantiles.db"
+    "merra2_monthly_aggregated_centroids_and_quantiles.db"
 )
 
-MODEL = "GEOSFP"
-START = "2021/01"
+MODEL = "MERRA2"
+START = "2022/7"
 END = "2026/06"
 
 

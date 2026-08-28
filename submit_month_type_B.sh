@@ -21,10 +21,10 @@ export PYTHONNOUSERSITE=1
 
 source /home/sadhika8/JupyterLinks/nobackup/quads_dev/.venv/bin/activate
 
-# Year/month/model for this run (allow sbatch --export to override)
-YEAR=${YEAR:-2024}
-MONTH=${MONTH:-5}
-MODEL=${MODEL:-MERRA2}
+# Year/month/model for this run (allow sbatch --export)
+YEAR=${YEAR:?}
+MONTH=${MONTH:?}
+MODEL=${MODEL:?}
 
 DAY=1  # dummy day - can use any value for the day, but an input is needed for formatting consistency
 # the central function in "compute_and_save_daily_digests.py" needs a full date string, including day, as# its argument. That date string is then passed to "get_collections_and_files.py"

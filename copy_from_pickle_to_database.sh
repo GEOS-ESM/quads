@@ -17,9 +17,9 @@ export PYTHONNOUSERSITE=1
 source /home/sadhika8/JupyterLinks/nobackup/quads_dev/.venv/bin/activate # activates the virtual environment
 
 # Year/month/model for this run (allow sbatch --export to override)
-YEAR=${YEAR:-2023}
-MONTH=${MONTH:-2}
-MODEL=${MODEL:-MERRA2}
+YEAR=${YEAR:?}
+MONTH=${MONTH:?}
+MODEL=${MODEL:?}
 
 echo "Copying monthly digests to SQLite for MODEL=${MODEL}, YEAR=${YEAR}, MONTH=${MONTH}"
 
@@ -30,7 +30,7 @@ python -u -m quads.copy_from_monthly_pickle_to_sqlitedb \
 	--year "$YEAR" \
 	--month "$MONTH"
 
-# now delete all daily .pkl files -- careful here!
+# now delete all daily .pkl files -- careful here!. Runs for merra2 as well, but does not find anything to delete
 MONTH_PADDED=$(printf "%02d" "$MONTH")
 MONTH_DIR="/home/sadhika8/JupyterLinks/nobackup/quads_data/${MODEL}/${YEAR}/${MONTH_PADDED}"
 

@@ -1,0 +1,30 @@
+ copy_from_pickle_to_database.sh                   |    8 [32m+[m[31m-[m
+ notebooks/Untitled.ipynb                          |  308 [32m+++[m[31m-[m
+ notebooks/Untitled1.ipynb                         |   92 [32m+[m[31m-[m
+ notebooks/Untitled2.ipynb                         |    0
+ notebooks/Untitled3.ipynb                         |   49 [32m+[m[31m-[m
+ notebooks/Untitled4.ipynb                         |  238 [32m++[m[31m-[m
+ notebooks/analyze_slices.ipynb                    |  267 [32m++++[m
+ notebooks/inspect_digests.ipynb                   |  263 [32m++++[m
+ notebooks/inspect_violations.ipynb                |  222 [32m++[m[31m-[m
+ notebooks/quantify_drift.ipynb                    |  721 [32m+++++++++[m
+ src/Untitled.ipynb                                |  333 [31m----[m
+ src/quads/compute_and_save_daily_digests.py       |    5 [32m+[m[31m-[m
+ src/quads/copy_from_monthly_pickle_to_sqlitedb.py |    6 [32m+[m[31m-[m
+ src/quads/for_users.py                            |   46 [32m+[m[31m-[m
+ src/quads/git                                     |    0
+ src/quads/lowm_para_serial_for_users.py           |  212 [31m---[m
+ src/quads/test_compute_and_save_daily_digests.py  |  187 [31m---[m
+ submission_records/user_results_submission.log    | 1705 [32m+++++++++++++++++++++[m
+ submit_month_type_A.sh                            |    6 [32m+[m[31m-[m
+ submit_month_type_B.sh                            |    8 [32m+[m[31m-[m
+ submit_pipeline_type_A.sh                         |    2 [32m+[m[31m-[m
+ submit_pipeline_type_B.sh                         |    6 [32m+[m[31m-[m
+ submit_truncated_pipleline_type_B.sh              |   17 [32m+[m
+ tests/Untitled1.ipynb                             |  187 [32m+++[m
+ tests/compare_quantiles.py                        |   31 [32m+[m
+ tests/count_rows.py                               |    6 [32m+[m[31m-[m
+ tests/is_identical.py                             |   23 [32m+[m
+ tests/wasserstein_distance.py                     |   87 [32m++[m
+ user_submit_pipeline.sh                           |    2 [32m+[m[31m-[m
+ 29 files changed, 4206 insertions(+), 831 deletions(-)

@@ -40,12 +40,12 @@ def insert_month_into_db(
         print(f"Database does not exist: {db_path}")
         return
 
-    with sqlite3.connect(str(db_path)) as conn:
+    with sqlite3.connect(str(db_path), timeout=300.0, isolation_level="IMMEDIATE") as conn:
         cur = conn.cursor()
-        cur.execute("PRAGMA journal_mode=WAL;")
+        #cur.execute("PRAGMA journal_mode=WAL;")
         cur.execute("PRAGMA synchronous=FULL;")
 
-        cur.execute("BEGIN;")
+        #cur.execute("BEGIN IMMEDIATE;")
         try:
             rows = []
             for payload in monthly_data:
