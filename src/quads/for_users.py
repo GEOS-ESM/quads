@@ -1,24 +1,29 @@
 # compute and store results with comparing daily data with historical
 # SQLite database
 
-from pathlib import Path
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
+import argparse
+
 #from typing import Dict
 import pickle
 import sqlite3
-import yaml
-import xarray as xr
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+
+import dask
 import numpy as np
 import pandas as pd
-import dask
+import xarray as xr
+import yaml
 from dask import delayed
-import argparse
+from dateutil.relativedelta import relativedelta
 from pytdigest import TDigest
 
 from quads.get_collections_and_files import list_files_and_excluded_vars
+from quads.make_tdigest import (
+    get_quantiles_from_tdigest,  # returns (quantiles, quantile_list)
+)
 from quads.sanity_check_v2 import fence
-from quads.make_tdigest import get_quantiles_from_tdigest  # returns (quantiles, quantile_list)
 
 # Coordinate name preferences (in order)
 LEV_NAMES = ["lev", "level", "pressure"]
@@ -39,13 +44,15 @@ def load_tdigest_from_db(db_path: Path, model: str, year: int, month: int, id_st
     Returns None if not found.
     """
     table_name = model.lower()
-    with sqlite3.connect(str(db_path)) as conn:
+    conn = sqlite3.connect(str(db_path))
+    try:
         row = conn.execute(
             f"SELECT compression, centroids, quantiles, quantile_list FROM {table_name} "
             "WHERE model=? AND year=? AND month=? AND id_string=?",
             (model, year, month, id_string),
         ).fetchone()
-    #print(row)
+    finally:
+        conn.close()
 
     if row is None:
         print(
@@ -106,7 +113,7 @@ def analyse(da_sel,
             is_positive,
             is_fractional,
             is_high_priority,
-            ) -> tuple[tuple, pd.DataFrame] | str:
+            ) -> tuple[tuple, pd.DataFrame | None, int] | str:
     """
     Compute results for the given data slice and collect violated data points.
     Reference is built by combining TDigests from 3 relevant months of previous 
@@ -158,13 +165,14 @@ def analyse(da_sel,
  
     mask_low = da_sel < fence_low
     mask_high = da_sel > fence_high
-    mask_bad = mask_low | mask_high 
+    mask_bad = mask_low | mask_high
+    mask_nans = np.isnan(da_sel)
 
-    n_low, n_high = dask.compute(mask_low.sum(), mask_high.sum())
+    n_low, n_high, n_nans = dask.compute(mask_low.sum(), mask_high.sum(), mask_nans.sum(), )
     n_low = int(n_low)
     n_high = int(n_high)
     n_tot = n_low + n_high
-
+    n_nans = int(n_nans)
 
     summary_row = (key, n_low, n_high, n_tot, fence_low, fence_high,  quantiles, qlist, is_positive, is_fractional, is_high_priority)
 
@@ -193,7 +201,7 @@ def analyse(da_sel,
         )
         #print(f"shape of violations_df: {violations_df.shape}")
 
-    return summary_row, violations_df
+    return summary_row, violations_df, n_nans
 # -----------------------------
 # main driver
 # -----------------------------
@@ -239,6 +247,7 @@ def compute_and_save_results(
     all_violations_tables = []
     total_violation_rows = 0
     all_failed_keys = [f"list of failed keys for model: {model} and date: {date}"] # included header of the text file I will write enventually
+    nan_count_dict = defaultdict(int)
 
     for coll_name, files in collection_dict.items():
         #if coll_name != "inst3_2d_asm_Nx":
@@ -324,7 +333,9 @@ def compute_and_save_results(
             summary_rows = []
             violation_tables = []
 
-            for summary_row, violations_df in finished:
+            for summary_row, violations_df, n_nans in finished:
+                nan_count_dict[coll_name] += n_nans
+
                 if summary_row[3] > 0:
                     summary_rows.append(summary_row)
 
@@ -353,7 +364,7 @@ def compute_and_save_results(
         violations_all = pd.DataFrame()
     
     print(all_failed_keys)
-    return df, violations_all, all_failed_keys
+    return df, violations_all, all_failed_keys, nan_count_dict
 
 # -----------------------------
 # __main__
@@ -376,12 +387,12 @@ if __name__ == "__main__":
     strata_file = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/strata.yaml"
     physical_constraints_yaml_path = "/home/sadhika8/JupyterLinks/nobackup/quads_dev/conf/GEOS_PHYSICAL_CONSTRAINTS.yaml"
     db_path = Path(f"/home/sadhika8/JupyterLinks/nobackup/quads_database/{model_lower}_monthly_aggregated_centroids_and_quantiles.db")
-    results_base_path = Path(f"/home/sadhika8/JupyterLinks/nobackup/quads_results")
+    results_base_path = Path("/home/sadhika8/JupyterLinks/nobackup/quads_results")
     results_base_path.mkdir(parents=True, exist_ok=True)
 
     print(f"Running QUADS user job for MODEL={model}, DATE={date_str}")
 
-    df, violations_df, failed_keys = compute_and_save_results(
+    df, violations_df, failed_keys, nan_count_dict = compute_and_save_results(
         model=model,
         date=date,
         data_yaml_file=data_yaml_file,
@@ -400,7 +411,7 @@ if __name__ == "__main__":
     day_dir = month_dir / f"{date.day:02d}"
     day_dir.mkdir(parents=True, exist_ok=True)
 
-    #ref_str = historical_reference_date.strftime("%Y-%m")
+    # ref_str = historical_reference_date.strftime("%Y-%m")
     df_var_name = f"quads_results_{model_lower}_{date.strftime('%Y_%m_%d')}"
     out_file = f"{df_var_name}_summary.pkl"
     out_path = day_dir / out_file
@@ -431,5 +442,10 @@ if __name__ == "__main__":
                 "\n".join(failed_keys) + "\n"
                 )
         print("Wrote a list of data slices with no historical tdigests into a .txt file")
+
+    # save nan count for each collection
+    nan_count_dictionary_path = day_dir/"nan_count_by_collection.csv"
+    pd.DataFrame(nan_count_dict.items(), columns=["collection", "no_of_nans"]
+                 ).to_csv(nan_count_dictionary_path, index=False)
 
 
